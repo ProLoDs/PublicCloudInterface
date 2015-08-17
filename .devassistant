@@ -1,0 +1,26 @@
+dependencies:
+- rpm:
+  - python${py3}
+- if $venv:
+  - rpm:
+    - python-virtualenv
+- else:
+  - rpm:
+    - python-flask
+    - python-flask-sqlalchemy
+    - python-flask-wtf
+    - python-flask-script
+- rpm:
+  - eclipse
+  - eclipse-cdt
+- rpm:
+  - eclipse-pydev
+devassistant_version: 0.9.4
+original_kwargs:
+  eclipse: !!python/unicode '/home/pro/workspace'
+  github: !!python/unicode 'pro'
+  name: !!python/unicode '/home/pro/Dokumente/Projekte/INFM_Projektarbeit/PublicCloud'
+  venv: !!python/unicode ''
+project_type:
+- python
+- flask
