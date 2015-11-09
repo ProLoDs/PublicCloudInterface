@@ -49,13 +49,6 @@ class Marketplace(db.Model):
            'signature'  : self.signature
 
        }
-#class Post(db.Model):
-#  id = db.Column(db.Integer, primary_key=True)
-#  comments = db.relationship('Comments', backref="post", cascade="all, delete-orphan" , lazy='dynamic')
- 
-#class Comments(db.Model):
-#  id = db.Column(db.Integer, primary_key=True)
-#  post_id = db.Column(db.Integer, db.ForeignKey('post.id'))
 class Contract(db.Model):      
     id = db.Column(db.Integer, primary_key=True)
     key = db.Column(db.String(200))
@@ -63,6 +56,7 @@ class Contract(db.Model):
     data = db.Column(db.Text())
     active = db.Column(db.Boolean, default=False)
     marketplace_id = db.Column(db.Integer, db.ForeignKey('marketplace.id'))
+#     state = db.Column(db.Enum(*STATES),default="OPEN")
     @property
     def to_json(self):
         return {
@@ -75,17 +69,13 @@ class Contract(db.Model):
 #http://127.0.0.1:5000/marketplace
 @app.route('/marketplace')
 def get_marketplace():
-#     a = request.args.get('a', 0, type=int)
-#     b = request.args.get('b', 0, type=int)
     tmp = Marketplace.query.all()
     if not tmp:
         return jsonify(result="Empty")
-    return jsonify(result=[i.to_json for i in tmp])
+    return jsonify(result=[i.to_json for i in tmp if i.state is not "CLOSED"])
 
-#http://127.0.0.1:5000/add_marketplace?name=abc&firma=cde&price=1&description=efg
 @app.route("/add_marketplace",methods=['POST'])
 def put_marketplace():
-    #'TODO Check of not empty and not Nonce'
     name =  str(request.form['name'])#request.args.get("name",type=str)
     firma = str(request.form['firma'])#request.args.get("firma",type=str)
     price = str(request.form['price'])#request.args.get("price",type=int)
@@ -94,7 +84,7 @@ def put_marketplace():
     deadline = str(request.form['deadline'])
     x509_cert = str(request.form['x509'])#request.args.get("x509",type=str)
     signature = str(request.form['signature'])#request.args.get("signature",type=str)
-    if not check_get_parameter([id,x509_cert,name,firma,price,desciption,currency,deadline,signature]):
+    if not check_parameter([id,x509_cert,name,firma,price,desciption,currency,deadline,signature]):
         return jsonify(result="missing Parameter")
     tmp_cert = X509.load_cert_string(x509_cert)
     #check Cert
@@ -114,7 +104,7 @@ def revoke_marketplace():
     x509 = str(request.form['x509'])#request.args.get("x509",type=str)
     nonce = str(request.form['nonce'])#request.args.get("nonce",type=str)
     signature = str(request.form['signature'])#request.args.get("signature",type=str)
-    if not check_get_parameter([id,x509,nonce]):
+    if not check_parameter([id,x509,nonce]):
         return jsonify(result="missing Parameter")
     if len(nonce) != 64:
         return jsonify(result="Invalid Nonce")
@@ -124,8 +114,8 @@ def revoke_marketplace():
     if not checkSignature(tmp_cert.get_pubkey(),[str(id),nonce], signature):
         return jsonify(result= "Siganture Invalid")
     if X509.load_cert_string(str(Marketplace.query.get(id).x509)).as_pem() != tmp_cert.as_pem():
-        print X509.load_cert_string(str(Marketplace.query.get(id).x509)).as_text()
-        print tmp_cert.as_text()
+#         print X509.load_cert_string(str(Marketplace.query.get(id).x509)).as_text()
+#         print tmp_cert.as_text()
         print "Invalid Organisation"
         return "Invalid Organisation"
     
@@ -141,7 +131,7 @@ def marketplace_put_offer():
     IV = str(request.form['IV'])#request.args.get("IV",type=str)
     signature = str(request.form['signature'])#request.args.get("signature",type=str)
     x509 = str(request.form['x509'])#request.args.get("x509",type=str)
-    if not check_get_parameter([str(id),x509,key,IV,encypted_data]):
+    if not check_parameter([str(id),x509,key,IV,encypted_data]):
         return jsonify(result="missing Parameter")
     tmp_cert = X509.load_cert_string(x509)
     if not checkCert(tmp_cert):
@@ -166,7 +156,7 @@ def Mekretplace_get_offers():
     timestamp = str(request.form['timestamp'])#request.args.get("timestamp",type=str)
     x509 = str(request.form['x509'])#request.args.get("x509",type=str)
     signature = str(request.form['signature'])#request.args.get("signature",type=str)
-    if not check_get_parameter([str(id),x509,timestamp,signature]):
+    if not check_parameter([str(id),x509,timestamp,signature]):
         return jsonify(result="missing Parameter")
     tmp_cert = X509.load_cert_string(x509)
     if not checkCert(tmp_cert):
@@ -175,9 +165,14 @@ def Mekretplace_get_offers():
         return jsonify(result= "Siganture Invalid")
     
     mp = Marketplace.query.get(id)
+
     if not mp:
         return jsonify(result="ID doesn't exist")
-    
+    if X509.load_cert_string(str(mp.x509)).as_pem() != tmp_cert.as_pem():
+#         print X509.load_cert_string(str(Marketplace.query.get(id).x509)).as_text()
+#         print tmp_cert.as_text()
+        print "Not your Marketplace"
+        return jsonify(result="Not your Marketplace")    
     return jsonify(result=[i.to_json for i in mp.contracts])
     #return jsonify(result="OK")
 #@app.route('/')
@@ -185,7 +180,45 @@ def Mekretplace_get_offers():
 #    return flask.render_template('index.html', path=os.path.abspath(os.path.dirname(__file__)))
 @app.route("/accept_offer",methods=['POST'])
 def Marketplace_accept_offer():
-    pass
+    id = str(request.form['id'])
+    nonce = str(request.form['nonce'])
+    timestamp = str(request.form['timestamp'])
+    x509 = str(request.form['x509'])
+    signature = str(request.form['signature'])
+
+    if not check_parameter([str(id),x509,nonce,timestamp,signature]):
+        return jsonify(result="missing Parameter")
+    
+    tmp_cert = X509.load_cert_string(x509)
+    if not checkCert(tmp_cert):
+        return jsonify(result="Cert not Valid")
+    
+    if not checkSignature(tmp_cert.get_pubkey(),[str(id),nonce,timestamp], signature):#,encypted_data
+        return jsonify(result= "Siganture Invalid")
+    
+    c = Contract.query.get(id)
+    if not c:
+        return jsonify(result="Contract Offer does not exist")
+    mp = Marketplace.query.get(c.marketplace_id)
+    if X509.load_cert_string(str(mp.x509)).as_pem() != tmp_cert.as_pem():
+        return jsonify(result="Not your marketplace")
+    
+    c.active = True
+    mp.state="ACTIVE"
+    
+    db.session.add(c)
+    db.session.add(mp)
+    db.session.commit()
+    
+    return jsonify(result="OK")
+
+def validate_date():
+    MPs = Marketplace.query.all()
+    for mp in MPs:
+        if int(mp.deadline.strftime("%s")) < int(time.time()) and mp.state is not "ACTIVE":
+            mp.state="CLOSED"
+            db.session.add(mp)
+    db.session.commit()
 def checkSignature(pk,args,signature):
     if not isinstance(pk,EVP.PKey):
         print "Not instace of PublicKey"
@@ -202,7 +235,7 @@ def checkCert(cert):
         print "Cert Verify failed"
         return False
     return True
-def check_get_parameter(args):
+def check_parameter(args):
     for a in args:
         if not a:
             return False

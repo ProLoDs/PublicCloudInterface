@@ -57,6 +57,7 @@ class MarketPlaceTestCase(unittest.TestCase):
         self.contract_put()
         self.contract_put()
         self.get_offers_per_marketplaceoffer()
+        self.contrats_accept()
         self.revoke_marketplace()
     def put_marketplace(self):
         deadline = str(time.time())
@@ -82,8 +83,22 @@ class MarketPlaceTestCase(unittest.TestCase):
         #print rv.data
         assert 'A'  in rv.data, "data not in database"
     def contrats_accept(self):
-        
-        pass
+        offer, data  = self.get_offers_per_marketplaceoffer()
+        id =  offer['id']
+        nonce = "".join([random.choice("ABCDEFGHIJKLMOPHRSTUVWXYZ1234567890") for a in range(16)])
+        timestamp = time.time()
+        x509 = self.cert.as_pem()
+        self.pk2.sign_init()
+        self.pk2.sign_update(str(id))
+        self.pk2.sign_update(nonce)
+        self.pk2.sign_update(str(timestamp))
+        signature = base64.b64encode(self.pk2.sign_final())
+        rv = self.app.post("/accept_offer",data=dict(        id = id,
+                                                             nonce = nonce,
+                                                             timestamp = timestamp,
+                                                             x509 = x509,
+                                                             signature = signature))
+        assert "OK" in rv.data
     def contract_put(self):
         #self.put_marketplace()
         rv = self.app.get('/marketplace')
