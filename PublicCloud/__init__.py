@@ -12,7 +12,7 @@ from flask import Flask, request, session, g, redirect, url_for, abort, \
      render_template, flash, jsonify
 import urllib
 import PublicCloud.Cloud_logger
-from _mysql import result
+
 
 
 app = Flask(__name__)
