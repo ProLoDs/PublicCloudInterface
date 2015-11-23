@@ -1,6 +1,7 @@
 import os
 import base64
 import flask
+import json
 #from flask import Flask, jsonify, render_template, request
 from flask.ext.sqlalchemy import SQLAlchemy
 import datetime
@@ -11,6 +12,7 @@ from flask import Flask, request, session, g, redirect, url_for, abort, \
      render_template, flash, jsonify
 import urllib
 import PublicCloud.Cloud_logger
+from _mysql import result
 
 
 app = Flask(__name__)
@@ -57,6 +59,8 @@ class Contract(db.Model):
     active = db.Column(db.Boolean, default=False)
     marketplace_id = db.Column(db.Integer, db.ForeignKey('marketplace.id'))
 #     state = db.Column(db.Enum(*STATES),default="OPEN")
+    data = db.relationship('Dataflow', backref='contract',
+                                lazy='dynamic',cascade="all, delete-orphan")
     @property
     def to_json(self):
         return {
@@ -65,6 +69,23 @@ class Contract(db.Model):
            'data'      : self.data,
            'IV'        : self.IV
 
+       }
+class Dataflow(db.Model):
+    id = db.Column(db.Integer,primary_key=True)
+    AccuData = db.Column(db.Text())
+    EncData = db.Column(db.Text())
+    OpenData = db.Column(db.Text())
+    contract_id = db.Column(db.Integer, db.ForeignKey('contract.id'))
+    timestamp = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+    
+    @property
+    def to_json(self):
+        return {
+           'id'         : self.id,
+           'AccuData'   : self.AccuData,
+           'OpenData'   : self.OpenData,
+           'EncData'    : self.EncData,
+           'timestamp'  : self.timestamp
        }
 #http://127.0.0.1:5000/marketplace
 @app.route('/marketplace')
@@ -174,10 +195,6 @@ def Mekretplace_get_offers():
         print "Not your Marketplace"
         return jsonify(result="Not your Marketplace")    
     return jsonify(result=[i.to_json for i in mp.contracts])
-    #return jsonify(result="OK")
-#@app.route('/')
-#def index():
-#    return flask.render_template('index.html', path=os.path.abspath(os.path.dirname(__file__)))
 @app.route("/accept_offer",methods=['POST'])
 def Marketplace_accept_offer():
     id = str(request.form['id'])
@@ -211,7 +228,57 @@ def Marketplace_accept_offer():
     db.session.commit()
     
     return jsonify(result="OK")
+@app.route("/data_put",methods=['POST'])
+def dataFlow_put():
 
+    id = str(request.form['id'])
+    data = str(request.form['data'])
+    IV = str(request.form['IV'])
+    key = str(request.form['key'])
+    timestamp =  str(request.form['data'])
+    signature = str(request.form['signature'])
+    x509 = str(request.form['x509'])
+    if not check_parameter([str(id),x509,signature,data,timestamp,IV,key]):
+        return jsonify(result="missing Parameter")
+    if int(timestamp) + 10 < time.time():
+        return jsonify(result="Old data")
+    tmp_cert = X509.load_cert_string(x509)
+    if not checkCert(tmp_cert):
+        return jsonify(result="Cert not Valid") 
+    if not checkSignature(tmp_cert.get_pubkey(),[id,data,IV,key,timestamp], signature):#,encypted_data
+        return jsonify(result= "Siganture Invalid")
+    con = Contract.querry.get(id)
+    if not con:
+        return jsonify(result="Unkown ID")
+    jobj = json.loads(data)
+    dataflow = Dataflow(AccuData=jobj['AccuData'],EncData=jobj['EncData'],OpenData=jobj['OpenData'])
+    con.data.append(dataflow)
+    db.session.add(con)
+    db.session.add(dataflow)
+    db.session.commit()
+    # TODO Check ob gleiche fimra wie vertrag
+    return jsonify(result ="OK")
+def dataFlow_accu_get():
+    id = str(request.form['id'])
+    timestamp =  str(request.form['data'])
+    signature = str(request.form['signature'])
+    raw = str(request.form['signature'])
+    x509 = str(request.form['x509'])
+    if not check_parameter([str(id),x509,signature,timestamp]):
+        return jsonify(result="missing Parameter")
+    if int(timestamp) + 10 < time.time():
+        return jsonify(result="Old data")
+    tmp_cert = X509.load_cert_string(x509)
+    if not checkCert(tmp_cert):
+        return jsonify(result="Cert not Valid") 
+    if not checkSignature(tmp_cert.get_pubkey(),[id,timestamp], signature):#,encypted_data
+        return jsonify(result= "Siganture Invalid")
+    
+    c = Contract.query.get(id)
+    if raw == "1":
+        return jsonify(result=[i.to_json for i in c.data_accu ])
+    #TODO return accu data
+    return jsonify(result = "OK, not implemented, use raw:1 for now")
 def validate_date():
     MPs = Marketplace.query.all()
     for mp in MPs:
