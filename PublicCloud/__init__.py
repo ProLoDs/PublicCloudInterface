@@ -26,7 +26,7 @@ STATES = ["OPEN","CLOSED","ACTIVE"]
 class Marketplace(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(128))
-    firma = db.Column(db.String(128))
+    #firma = db.Column(db.String(128))
     price = db.Column(db.Integer)
     desciption = db.Column(db.String(200))
     date = db.Column(db.DateTime, default=datetime.datetime.utcnow)
@@ -98,23 +98,23 @@ def get_marketplace():
 @app.route("/add_marketplace",methods=['POST'])
 def put_marketplace():
     name =  str(request.form['name'])#request.args.get("name",type=str)
-    firma = str(request.form['firma'])#request.args.get("firma",type=str)
+    #firma = str(request.form['firma'])#request.args.get("firma",type=str)
     price = str(request.form['price'])#request.args.get("price",type=int)
     desciption = str(request.form['description'])#request.args.get("description",type=str)
     currency = str(request.form['currency'])#request.args.get("currency",type=str)
     deadline = str(request.form['deadline'])
     x509_cert = str(request.form['x509'])#request.args.get("x509",type=str)
     signature = str(request.form['signature'])#request.args.get("signature",type=str)
-    if not check_parameter([id,x509_cert,name,firma,price,desciption,currency,deadline,signature]):
+    if not check_parameter([id,x509_cert,name,price,desciption,currency,deadline,signature]):
         return jsonify(result="missing Parameter")
     tmp_cert = X509.load_cert_string(x509_cert)
     #check Cert
     if not checkCert(tmp_cert):
         return jsonify(result = "Cert Check Failed")
         # Check Signature
-    if not checkSignature(tmp_cert.get_pubkey(), [name,firma,str(price),desciption,currency,deadline], signature):
+    if not checkSignature(tmp_cert.get_pubkey(), [name,str(price),desciption,currency,deadline], signature):
         return jsonify(result="Signature Check Failed")
-    tmp = Marketplace(name=name,firma=firma,price=price,desciption=desciption,currency=currency,x509=x509_cert,signature=signature,deadline=datetime.datetime.fromtimestamp(float(deadline)))
+    tmp = Marketplace(name=name,price=price,desciption=desciption,currency=currency,x509=x509_cert,signature=signature,deadline=datetime.datetime.fromtimestamp(float(deadline)))
     db.session.add(tmp)
     db.session.commit()
     return jsonify(result= "OK")
