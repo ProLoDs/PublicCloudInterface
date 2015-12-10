@@ -10,14 +10,18 @@ import PublicCloud.x509 as x509
 import base64
 from Crypto.Hash import SHA
 from Crypto.Cipher import AES
+from Crypto.PublicKey import RSA
 from sqlite3 import dbapi2 as sqlite3
-from M2Crypto import X509, EVP, RSA, ASN1
+from M2Crypto import X509, EVP, ASN1
 from flask import Flask, request, session, g, redirect, url_for, abort, \
      render_template, flash, jsonify
-     
+from paillier.paillier import *
 import urllib
 from M2Crypto.__m2crypto import sha1
 import M2Crypto
+
+
+
 class MarketPlaceTestCase(unittest.TestCase):
 
     def setUp(self):
@@ -37,40 +41,41 @@ class MarketPlaceTestCase(unittest.TestCase):
         os.close(self.db_fd)
         os.unlink(PublicCloud.app.config['DATABASE'])
         #PublicCloud.db.drop_all()
-        
-  #  def setUp(self):
-       
-        #
-
-        
     
     def test_marketplace(self):
         rv = self.app.get('/marketplace')
         assert ('result'  in rv.data or "Empty" in rv.data)
+    # TODO abgeschlossene testfaelle
     def test_Put_and_del_again(self):
-        self.put_marketplace()
-        self.put_marketplace()
-        self.revoke_marketplace()
-        self.revoke_marketplace()
+        id1 = self.put_marketplace()
+        id2 = self.put_marketplace()
+        self.revoke_marketplace(id1)
+        self.revoke_marketplace(id2)
     def test_Test_with_offers(self):
-        self.put_marketplace()
-        self.contract_put()
-        self.contract_put()
-        self.get_offers_per_marketplaceoffer()
-        self.contrats_accept()
-        self.revoke_marketplace()
+        id = self.put_marketplace()
+        cid1 = self.contract_put(id)
+        cid2 = self.contract_put(id)
+        self.get_offers_per_marketplaceoffer(id)
+        self.contrats_accept(cid1)
+        self.revoke_marketplace(id)
+    def test_data_flow(self):
+        id = self.put_marketplace()
+        cid = self.contract_put(id)
+        self.contrats_accept(cid)
+        self.dataflow_put(cid)
+        self.dataflow_put(cid)
+        self.dataflow_put(cid)
+        #self.revoke_marketplace(id)
     def put_marketplace(self):
         deadline = str(time.time())
         self.pk2.sign_init()
-        self.pk2.sign_update("A")
         self.pk2.sign_update("A")
         self.pk2.sign_update("1")
         self.pk2.sign_update("A")
         self.pk2.sign_update("A")
         self.pk2.sign_update(deadline)
-        self.app.post("/add_marketplace",data=dict(
+        rv = self.app.post("/add_marketplace",data=dict(
         name="A",
-        firma="A",
         price=1,
         description="A",
         currency="A",
@@ -78,12 +83,12 @@ class MarketPlaceTestCase(unittest.TestCase):
         x509=self.cert.as_pem(),
         signature = base64.b64encode(self.pk2.sign_final())
         ))
-        
-        rv = self.app.get('/marketplace')
+        return json.loads(rv.data)['result']['id']#rv.data
+        #rv = self.app.get('/marketplace')
         #print rv.data
-        assert 'A'  in rv.data, "data not in database"
-    def contrats_accept(self):
-        offer, data  = self.get_offers_per_marketplaceoffer()
+        #assert 'A'  in rv.data, "data not in database"
+    def contrats_accept(self,id):
+        offer, data  = self.get_offers_per_marketplaceoffer(id)
         id =  offer['id']
         nonce = "".join([random.choice("ABCDEFGHIJKLMOPHRSTUVWXYZ1234567890") for a in range(16)])
         timestamp = time.time()
@@ -98,18 +103,18 @@ class MarketPlaceTestCase(unittest.TestCase):
                                                              timestamp = timestamp,
                                                              x509 = x509,
                                                              signature = signature))
+        
         assert "OK" in rv.data
-    def contract_put(self):
+    def contract_put(self,marketplace_id):
         #self.put_marketplace()
         rv = self.app.get('/marketplace')
-        id=json.loads(rv.data)['result'][0]['id']
+        id=marketplace_id#json.loads(rv.data)['result'][0]['id']
         
         raw_x509 = json.loads(rv.data)['result'][0]['x509']
         m_x509 = X509.load_cert_string(str(raw_x509))
-        aes_key = SHA.new("".join([random.choice("ABCDEFGHIJKLMOPHRSTUVWXYZ1234567890") for a in range(64)])).hexdigest()
+        aes_key = SHA.new("".join([random.choice("ABCDEFGHIJKLMOPHRSTUVWXYZ1234567890") for _ in range(64)])).hexdigest()
         rsa_key = m_x509.get_pubkey()
-        iv = "".join([random.choice("ABCDEFGHIJKLMOPHRSTUVWXYZ1234567890") for a in range(16)])
-
+        iv = gen_iv()
         enc_aes_key = base64.b64encode(rsa_key.get_rsa().public_encrypt(aes_key[:16],M2Crypto.RSA.pkcs1_padding))
         
         cipher = AES.new(aes_key[:16], AES.MODE_CFB, iv)
@@ -124,6 +129,7 @@ class MarketPlaceTestCase(unittest.TestCase):
         signature = base64.b64encode(self.pk2.sign_final())
         #[id,x509,key,IV,encypted_data]
         #[str(id),x509,key,IV,encypted_data]
+        #print cipher_text
         rv = self.app.post("/put_offer",data=dict(IV = iv,
                                                              id = id,
                                                              key = enc_aes_key,
@@ -132,20 +138,21 @@ class MarketPlaceTestCase(unittest.TestCase):
                                                              data = cipher_text))
         #self.test_revoke_marketplace()
         #print rv.data
-        assert "OK" in rv.data
+        assert "id" in rv.data
+        return json.loads(rv.data)['result']['id']
     
-    def revoke_marketplace(self):
+    def revoke_marketplace(self,marketplace_id):
         rv = self.app.get('/marketplace')
         #print rv.data
         #print json.loads(rv.data)['result'][0]['id']
         self.pk2.sign_init()
-        self.pk2.sign_update(str(json.loads(rv.data)['result'][0]['id']))
-        nonce_str = "".join([random.choice("ABCDEFGHIJKLMOPHRSTUVWXYZ1234567890") for a in range(64)])
+        self.pk2.sign_update(str(marketplace_id))
+        nonce_str = "".join([random.choice("ABCDEFGHIJKLMOPHRSTUVWXYZ1234567890") for _ in range(64)])
         self.pk2.sign_update(nonce_str)
         
         
         rv = self.app.post("/revoke_marketplace",data=dict(
-                                                             id=json.loads(rv.data)['result'][0]['id'],
+                                                             id=marketplace_id,
                                                              signature = base64.b64encode(self.pk2.sign_final()),
                                                              x509 = self.cert.as_pem(),
                                                              nonce = nonce_str))
@@ -155,9 +162,9 @@ class MarketPlaceTestCase(unittest.TestCase):
         cipher = AES.new(aes_key, AES.MODE_CFB, iv)
         data =  cipher.decrypt(base64.b64decode(data))
         return data
-    def get_offers_per_marketplaceoffer(self):
-        rv = self.app.get('/marketplace')
-        id = json.loads(rv.data)['result'][0]['id']
+    def get_offers_per_marketplaceoffer(self,maketplace_id):
+        #rv = self.app.get('/marketplace')
+        id = maketplace_id#json.loads(rv.data)['result'][0]['id']
         timestamp = str(time.time())
         x509 = self.cert
         self.pk2.sign_init()
@@ -173,20 +180,61 @@ class MarketPlaceTestCase(unittest.TestCase):
         data = self.decrypt_offer(offer['key'],offer['data'],offer['IV'])
         assert "Cipher_text23456" in data
         return offer,data
+    def dataflow_put(self,contract_id):
+        id = contract_id
+        data = random_dataflow_creator()
+        iv = gen_iv()
+        key = base64.b64encode("01234567890123456")
+        timestamp = str(int(time.time()))
+        x509 = self.cert.as_pem()
+        
+        self.pk2.sign_init()
+        self.pk2.sign_update(str(id))
+        self.pk2.sign_update(data)
+        self.pk2.sign_update(iv)
+        self.pk2.sign_update(key)
+        self.pk2.sign_update(timestamp)
+        signature = base64.b64encode(self.pk2.sign_final())
+        rv = self.app.post("/data_put",data=dict(    id = id,
+                                                             x509 = self.cert.as_pem(),
+                                                             data = data,
+                                                             key = key,
+                                                             IV = iv,
+                                                             signature = signature,
+                                                             timestamp = timestamp))
+        assert "OK" in  rv.data
+        
+# DONT DO THIS FOR PRODUCTIONAL PURPOSE, ONLY SECURERANDOM WITH RANDOM BYTEARRAY
+def gen_iv():
+    return "".join([random.choice("ABCDEFGHIJKLMOPHRSTUVWXYZ1234567890") for _ in range(16)])
+def random_dataflow_creator():
+    with open("PublicCloud/keypair","r") as f:
+        rsa = RSA.importKey(f.read())
+    priv = PrivateKey(rsa.key.p,rsa.key.q,rsa.key.n)
+    pub =  PublicKey(rsa.key.n)
+    rand1 = random.randrange(1,30)
+    rand2 = random.randrange(1,30)
+    rand3 = random.randrange(1,30)
+    
+    AccuData = {}
+    AccuData['TestParamA'] = encrypt(pub, rand1)
+    AccuData['TestParamB'] = encrypt(pub, rand2)
+    AccuData['TestParamC'] = encrypt(pub, rand3)
+    
+    EncData = {}
+    EncData['TestParamA'] = base64.b64encode(gen_iv())
+    EncData['TestParamB'] = base64.b64encode(gen_iv())
+    EncData['TestParamC'] = base64.b64encode(gen_iv())
+    
+    OpenData = {}
+    OpenData['TestParamA'] = rand1
+    OpenData['TestParamB'] = rand2
+    OpenData['TestParamC'] = rand3
+    
+    return json.dumps({'AccuData'  : AccuData,
+            'EncData'   : EncData,
+            'OpenData'  : OpenData})
 
-        #
-        #assert 
-#         rv = self.app.get('/marketplace')
-#         #print rv.data
-#         assert "Empty" in rv.data
-#     
-#    name =  request.args.get("name",type=str)
-#    firma = request.args.get("firma",type=str)
-#    price = request.args.get("price",type=int)
-#    desciption = request.args.get("description",type=str)
-#    currency = request.args.get("currency",type=str)
-#    x509 = request.args.get("x509",type=str)
-#    signature = request.args.get("signature",type=str)
 
 if __name__ == '__main__':
     unittest.main()

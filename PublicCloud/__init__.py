@@ -6,12 +6,14 @@ import json
 from flask.ext.sqlalchemy import SQLAlchemy
 import datetime
 from M2Crypto import X509, EVP, RSA, ASN1
+from Crypto.PublicKey import RSA as pyRSA
 from sqlite3 import dbapi2 as sqlite3
 import time
 from flask import Flask, request, session, g, redirect, url_for, abort, \
      render_template, flash, jsonify
 import urllib
-import PublicCloud.Cloud_logger
+
+#import PublicCloud.Cloud_logger
 
 
 
@@ -42,7 +44,6 @@ class Marketplace(db.Model):
         return {
            'id'         : self.id,
            'name'       : self.name,
-           'firma'      : self.firma,
            'price'      : self.price,
            'desciption' : self.desciption,
            'date'       : self.date,
@@ -58,23 +59,31 @@ class Contract(db.Model):
     data = db.Column(db.Text())
     active = db.Column(db.Boolean, default=False)
     marketplace_id = db.Column(db.Integer, db.ForeignKey('marketplace.id'))
-#     state = db.Column(db.Enum(*STATES),default="OPEN")
-    data = db.relationship('Dataflow', backref='contract',
+    state = db.Column(db.Enum(*STATES),default="OPEN")
+    flowdata = db.relationship('Dataflow', backref='contract',
                                 lazy='dynamic',cascade="all, delete-orphan")
+    accudata =  db.relationship("AccuData", uselist=False, backref="contract")
     @property
     def to_json(self):
         return {
            'id'        : self.id,
            'key'       : self.key,
            'data'      : self.data,
+           'state'     : self.state,
            'IV'        : self.IV
 
        }
+class AccuData(db.Model):
+    __tablename__ = 'accudata'
+    id = db.Column(db.Integer,primary_key=True)
+    data = db.Column(db.Text())
+    timestamp = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+    parent_id = db.Column(db.Integer, db.ForeignKey('contract.id'))
 class Dataflow(db.Model):
     id = db.Column(db.Integer,primary_key=True)
-    AccuData = db.Column(db.Text())
-    EncData = db.Column(db.Text())
-    OpenData = db.Column(db.Text())
+    iv = db.Column(db.Text())
+    key = db.Column(db.Text())
+    data = db.Column(db.Text())
     contract_id = db.Column(db.Integer, db.ForeignKey('contract.id'))
     timestamp = db.Column(db.DateTime, default=datetime.datetime.utcnow)
     
@@ -82,9 +91,9 @@ class Dataflow(db.Model):
     def to_json(self):
         return {
            'id'         : self.id,
-           'AccuData'   : self.AccuData,
-           'OpenData'   : self.OpenData,
-           'EncData'    : self.EncData,
+           'data'       : self.data,
+           'key'        : self.key,
+           'iv'         : self.iv,
            'timestamp'  : self.timestamp
        }
 #http://127.0.0.1:5000/marketplace
@@ -117,7 +126,7 @@ def put_marketplace():
     tmp = Marketplace(name=name,price=price,desciption=desciption,currency=currency,x509=x509_cert,signature=signature,deadline=datetime.datetime.fromtimestamp(float(deadline)))
     db.session.add(tmp)
     db.session.commit()
-    return jsonify(result= "OK")
+    return jsonify(result= tmp.to_json)
 
 @app.route("/revoke_marketplace",methods=['POST'])
 def revoke_marketplace():
@@ -170,7 +179,7 @@ def marketplace_put_offer():
     db.session.add(tmp_contract)
     db.session.add(mp)
     db.session.commit()
-    return jsonify(result="OK")
+    return jsonify(result=tmp_contract.to_json)
 @app.route("/get_offer",methods=['POST'])
 def Mekretplace_get_offers():
     id = str(request.form['id'])#request.args.get("id",type=int)
@@ -235,7 +244,7 @@ def dataFlow_put():
     data = str(request.form['data'])
     IV = str(request.form['IV'])
     key = str(request.form['key'])
-    timestamp =  str(request.form['data'])
+    timestamp =  str(request.form['timestamp'])
     signature = str(request.form['signature'])
     x509 = str(request.form['x509'])
     if not check_parameter([str(id),x509,signature,data,timestamp,IV,key]):
@@ -247,22 +256,23 @@ def dataFlow_put():
         return jsonify(result="Cert not Valid") 
     if not checkSignature(tmp_cert.get_pubkey(),[id,data,IV,key,timestamp], signature):#,encypted_data
         return jsonify(result= "Siganture Invalid")
-    con = Contract.querry.get(id)
+    con = Contract.query.get(id)
     if not con:
         return jsonify(result="Unkown ID")
     jobj = json.loads(data)
-    dataflow = Dataflow(AccuData=jobj['AccuData'],EncData=jobj['EncData'],OpenData=jobj['OpenData'])
-    con.data.append(dataflow)
+    dataflow = Dataflow(data = data, iv = IV , key = key)
+    con.flowdata.append(dataflow)
     db.session.add(con)
     db.session.add(dataflow)
     db.session.commit()
     # TODO Check ob gleiche fimra wie vertrag
     return jsonify(result ="OK")
-def dataFlow_accu_get():
+@app.route("/data_get",methods=['POST'])
+def dataFlow_get():
     id = str(request.form['id'])
     timestamp =  str(request.form['data'])
     signature = str(request.form['signature'])
-    raw = str(request.form['signature'])
+    raw = str(request.form['raw'])
     x509 = str(request.form['x509'])
     if not check_parameter([str(id),x509,signature,timestamp]):
         return jsonify(result="missing Parameter")
@@ -276,7 +286,7 @@ def dataFlow_accu_get():
     
     c = Contract.query.get(id)
     if raw == "1":
-        return jsonify(result=[i.to_json for i in c.data_accu ])
+        return jsonify(result=[i.to_json for i in c.flowdata ])
     #TODO return accu data
     return jsonify(result = "OK, not implemented, use raw:1 for now")
 def validate_date():
