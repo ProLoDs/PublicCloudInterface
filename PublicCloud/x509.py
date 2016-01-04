@@ -108,7 +108,14 @@ def mk_casigned_cert():
     cert.sign(pk1, 'sha1')
     return cacert,pk1, cert, pk2
 
-
+def mk_cert_signed_by_ca(cn,ca_cert,key):
+    cert_req, pk2 = mk_request(1024, cn=cn)
+    cert = mk_cert()
+    cert.set_issuer(ca_cert.get_issuer())
+    cert.set_subject(cert_req.get_subject())
+    cert.set_pubkey(cert_req.get_pubkey())
+    cert.sign(key, 'sha1')
+    return cert, pk2
 def mk_temporary_cacert():
     """
     Create a temporary CA cert.
@@ -171,18 +178,29 @@ def mk_temporary_cert(cacert_file, ca_key_file, cn, o , ou):
 
 
 if __name__ == '__main__':
-    cacert,pk_cac, cert, pk = mk_casigned_cert()
-    with open('cacert.crt', 'w') as f:
-        f.write(cacert.as_pem())
-
-    with open("ca_keypair","w") as f:
-        f.write(pk_cac.as_pem(None))
+    
+    key = EVP.load_key("ca_keypair")
+    ca_cert = X509.load_cert("cacert.crt")
+    for i in range(10):
+        cert , pkey = mk_cert_signed_by_ca("dataflow" + str(i),ca_cert,key)
+        with open("Testing/cert"+str(i)+".cert","w") as f:
+            f.write(cert.as_pem())
+        with open("Testing/key"+str(i)+".pem","w") as f:
+            f.write(pkey.as_pem(None))
         
-    with open('cert.crt', 'w') as f:
-        f.write(cert.as_pem())
-
-    with open("keypair","w") as f:
-        f.write(pk.as_pem(None))
+    #cacert,pk_cac, cert, pk = mk_casigned_cert()
+    
+#     with open('cacert.crt', 'w') as f:
+#         f.write(cacert.as_pem())
+# 
+#     with open("ca_keypair","w") as f:
+#         f.write(pk_cac.as_pem(None))
+#         
+#     with open('cert.crt', 'w') as f:
+#         f.write(cert.as_pem())
+# 
+#     with open("keypair","w") as f:
+#         f.write(pk.as_pem(None))
 #     with open('cert.crt', 'w') as f:
 #         f.write(cert.as_pem())
 #         f.write(pk.as_pem(None))

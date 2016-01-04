@@ -79,6 +79,13 @@ class AccuData(db.Model):
     data = db.Column(db.Text())
     timestamp = db.Column(db.DateTime, default=datetime.datetime.utcnow)
     parent_id = db.Column(db.Integer, db.ForeignKey('contract.id'))
+    @property
+    def to_json(self):
+        return {
+           'data'        : self.data,
+           'timestamp'   : self.timestamp
+
+       }
 class Dataflow(db.Model):
     id = db.Column(db.Integer,primary_key=True)
     iv = db.Column(db.Text())
@@ -270,9 +277,9 @@ def dataFlow_put():
 @app.route("/data_get",methods=['POST'])
 def dataFlow_get():
     id = str(request.form['id'])
-    timestamp =  str(request.form['data'])
+    timestamp =  str(request.form['timestamp'])
     signature = str(request.form['signature'])
-    raw = str(request.form['raw'])
+    accu = str(request.form['accu'])
     x509 = str(request.form['x509'])
     if not check_parameter([str(id),x509,signature,timestamp]):
         return jsonify(result="missing Parameter")
@@ -281,14 +288,19 @@ def dataFlow_get():
     tmp_cert = X509.load_cert_string(x509)
     if not checkCert(tmp_cert):
         return jsonify(result="Cert not Valid") 
-    if not checkSignature(tmp_cert.get_pubkey(),[id,timestamp], signature):#,encypted_data
+    if not checkSignature(tmp_cert.get_pubkey(),[id,accu,timestamp], signature):#,encypted_data
         return jsonify(result= "Siganture Invalid")
     
     c = Contract.query.get(id)
-    if raw == "1":
+    if accu == "0":
         return jsonify(result=[i.to_json for i in c.flowdata ])
-    #TODO return accu data
-    return jsonify(result = "OK, not implemented, use raw:1 for now")
+    if accu == "1":
+        if(c.accudata):
+            return jsonify(result=c.accudata.data)
+        else:
+            return jsonify(result="Not ready yet")
+    else:
+        return jsonify(result = "Wrong accu param")
 def validate_date():
     MPs = Marketplace.query.all()
     for mp in MPs:

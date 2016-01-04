@@ -19,7 +19,7 @@ from paillier.paillier import *
 import urllib
 from M2Crypto.__m2crypto import sha1
 import M2Crypto
-
+from cronjob_accu import doCron
 
 
 class MarketPlaceTestCase(unittest.TestCase):
@@ -65,7 +65,12 @@ class MarketPlaceTestCase(unittest.TestCase):
         self.dataflow_put(cid)
         self.dataflow_put(cid)
         self.dataflow_put(cid)
-        #self.revoke_marketplace(id)
+        self.dataflow_get(cid,"0")
+        self.dataflow_get(cid,"1")
+        self.revoke_marketplace(id)
+        
+        
+        
     def put_marketplace(self):
         deadline = str(time.time())
         self.pk2.sign_init()
@@ -187,7 +192,6 @@ class MarketPlaceTestCase(unittest.TestCase):
         key = base64.b64encode("01234567890123456")
         timestamp = str(int(time.time()))
         x509 = self.cert.as_pem()
-        
         self.pk2.sign_init()
         self.pk2.sign_update(str(id))
         self.pk2.sign_update(data)
@@ -202,8 +206,31 @@ class MarketPlaceTestCase(unittest.TestCase):
                                                              IV = iv,
                                                              signature = signature,
                                                              timestamp = timestamp))
+        #print rv.data
         assert "OK" in  rv.data
-        
+    def dataflow_get(self,contract_id,accu):
+#         id = str(request.form['id'])
+#         timestamp =  str(request.form['data'])
+#         signature = str(request.form['signature'])
+#         accu = str(request.form['raw'])
+#         x509 = str(request.form['x509'])
+        if accu == "1":
+            doCron()
+        id = contract_id
+        timestamp = str(int(time.time()))
+        x509 = self.cert.as_pem()
+        accu = accu
+        self.pk2.sign_init()
+        self.pk2.sign_update(str(id))
+        self.pk2.sign_update(accu)
+        self.pk2.sign_update(timestamp)
+        signature = base64.b64encode(self.pk2.sign_final())
+        rv = self.app.post("/data_get",data=dict(    id = id,
+                                                             x509 = self.cert.as_pem(),
+                                                             accu = accu,
+                                                             signature = signature,
+                                                             timestamp = timestamp))
+        print rv.data
 # DONT DO THIS FOR PRODUCTIONAL PURPOSE, ONLY SECURERANDOM WITH RANDOM BYTEARRAY
 def gen_iv():
     return "".join([random.choice("ABCDEFGHIJKLMOPHRSTUVWXYZ1234567890") for _ in range(16)])

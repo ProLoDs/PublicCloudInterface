@@ -56,9 +56,7 @@ class Dataflow(Base):
     contract_id = Column(Integer, ForeignKey('contract.id'))
     timestamp = Column(DateTime, default=datetime.datetime.utcnow)
 
-
-if __name__ == '__main__':
-        
+def doCron():
     engine = create_engine('sqlite:///test.db')
     session = sessionmaker()
     session.configure(bind=engine)
@@ -85,7 +83,7 @@ if __name__ == '__main__':
                     else:
                         accu_data[key] = value
             data_string = dumps(accu_data)
-            pprint.pprint(accu_data)
+            #pprint.pprint(accu_data)
             if con.accudata:
                 con.accudata.data = data_string
                 con.accudata.timestamp = datetime.datetime.utcnow()
@@ -93,5 +91,7 @@ if __name__ == '__main__':
                 con.accudata = AccuData(data=data_string)
             s.add(con)
             s.commit()
+if __name__ == '__main__':
+    doCron()
             
     #print s.query(Marketplace).all()[0].id
