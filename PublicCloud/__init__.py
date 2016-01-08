@@ -293,7 +293,8 @@ def dataFlow_get():
     
     c = Contract.query.get(id)
     if accu == "0":
-        return jsonify(result=[i.to_json for i in c.flowdata ])
+        if c.flowdata:
+            return jsonify(result=[i.to_json for i in c.flowdata ])
     if accu == "1":
         if(c.accudata):
             return jsonify(result=c.accudata.data)
